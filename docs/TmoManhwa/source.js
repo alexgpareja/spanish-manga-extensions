@@ -868,7 +868,7 @@ var _Sources = (() => {
       const pages = [];
       const seen = /* @__PURE__ */ new Set();
       $("#chapter-images img, .reading-content img").each((_, el) => {
-        const src = $(el).attr("src") ?? $(el).attr("data-src") ?? $(el).attr("data-lazy-src") ?? "";
+        const src = $(el).attr("data-src") || $(el).attr("src") || $(el).attr("data-lazy-src") || $(el).attr("data-original") || "";
         if (src.startsWith("http") && !seen.has(src)) {
           seen.add(src);
           pages.push(src);
