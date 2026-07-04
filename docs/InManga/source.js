@@ -803,39 +803,40 @@ var _Sources = (() => {
       });
     }
     // ── getChapters ───────────────────────────────────────────────────────────
-    // Chapter links on detail page: /ver/manga/{slug}/{chapNum}/{chapUuid}
-    // chapNum may contain commas: "1,187" → strip to "1187"
+    // API: GET /chapter/getall?mangaIdentification={uuid}
+    // Returns: { data: "<JSON string>" } → parse twice
+    // Each chapter: { Number, Identification, FriendlyChapterNumberUrl, RegistrationDate }
     async getChapters(mangaId) {
-      const slug = getSlug(mangaId);
       const uuid = getMangaUuid(mangaId);
       const resp = await this.requestManager.schedule(
         App.createRequest({
-          url: `${BASE_URL}/ver/manga/${slug}/${uuid}`,
+          url: `${BASE_URL}/chapter/getall?mangaIdentification=${uuid}`,
           method: "GET",
           headers: { Referer: BASE_URL }
         }),
         this.RETRIES
       );
-      const $ = this.cheerio.load(resp.data);
-      const chapters = [];
-      const seen = /* @__PURE__ */ new Set();
-      $(`a[href*="/ver/manga/"]`).each((_, el) => {
-        const href = $(el).attr("href") ?? "";
-        const m = href.match(/\/ver\/manga\/[^/]+\/([0-9,]+)\/([a-f0-9-]{36})/i);
-        if (!m) return;
-        const chapNumStr = m[1].replace(/,/g, "");
-        const chapUuid = m[2].toLowerCase();
-        const chapId = `${chapNumStr}|${chapUuid}`;
-        if (seen.has(chapId)) return;
-        seen.add(chapId);
-        chapters.push(App.createChapter({
-          id: chapId,
-          chapNum: parseFloat(chapNumStr),
-          name: `Cap\xEDtulo ${chapNumStr}`,
-          langCode: "es"
-        }));
-      });
-      return chapters.sort((a, b) => b.chapNum - a.chapNum);
+      let result = [];
+      try {
+        const outer = JSON.parse(resp.data);
+        const inner = JSON.parse(outer.data);
+        result = inner.result ?? [];
+      } catch {
+        return [];
+      }
+      return result.map((c) => {
+        const chapNum = parseFloat(c.Number);
+        const chapUrl = String(c.FriendlyChapterNumberUrl);
+        const chapUuid = String(c.Identification).toLowerCase();
+        const time = c.RegistrationDate ? new Date(c.RegistrationDate) : void 0;
+        return App.createChapter({
+          id: `${chapUrl}|${chapUuid}`,
+          chapNum,
+          name: `Cap\xEDtulo ${chapUrl}`,
+          langCode: "es",
+          ...time && !isNaN(time.getTime()) ? { time } : {}
+        });
+      }).sort((a, b) => b.chapNum - a.chapNum);
     }
     // ── getChapterDetails ─────────────────────────────────────────────────────
     // Page IDs from #PageList option[value] — select is duplicated in DOM, deduplicate
