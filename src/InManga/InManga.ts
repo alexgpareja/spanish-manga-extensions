@@ -1,0 +1,286 @@
+import {
+    Chapter,
+    ChapterDetails,
+    ContentRating,
+    HomeSection,
+    HomeSectionType,
+    PagedResults,
+    PartialSourceManga,
+    SearchRequest,
+    SourceInfo,
+    SourceIntents,
+    SourceManga,
+    TagSection,
+    BadgeColor,
+    HomePageSectionsProviding,
+    MangaProviding,
+    ChapterProviding,
+    SearchResultsProviding,
+} from '@paperback/types'
+
+const BASE_URL = 'https://inmanga.com'
+const CDN_URL  = 'https://cdn1.intomanga.com'
+
+export const InMangaInfo: SourceInfo = {
+    version:        '1.0.0',
+    name:           'InManga',
+    icon:           'icon.png',
+    author:         'alexgpareja',
+    description:    'InManga — Manga en Español',
+    contentRating:  ContentRating.MATURE,
+    websiteBaseURL: BASE_URL,
+    language:       'es',
+    sourceTags: [{ text: 'Español', type: BadgeColor.GREY }],
+    intents: SourceIntents.MANGA_CHAPTERS
+           | SourceIntents.HOMEPAGE_SECTIONS,
+}
+
+// ── ID helpers ────────────────────────────────────────────────────────────────
+// mangaId   = "{slug}|{mangaUuid}"  e.g. "One-Piece|dfc7ecb5-e9b3-4aa5-a61b-a498993cd935"
+// chapterId = "{chapNum}|{chapUuid}" e.g. "1187|cdb7f662-3199-4301-b01d-86a03cc602d0"
+
+function getSlug(mangaId: string):     string { return mangaId.split('|')[0]   ?? mangaId }
+function getMangaUuid(mangaId: string): string { return mangaId.split('|')[1]   ?? mangaId }
+function getChapNum(chapterId: string): string { return chapterId.split('|')[0] ?? chapterId }
+function getChapUuid(chapterId: string): string { return chapterId.split('|')[1] ?? chapterId }
+
+function coverUrl(uuid: string): string {
+    return `${CDN_URL}/i/m/${uuid}/t/o/${uuid}.jpg`
+}
+
+function parseStatus(text: string): string {
+    const t = text.toLowerCase()
+    if (t.includes('emisión') || t.includes('en curso') || t.includes('ongoing')) return 'Ongoing'
+    if (t.includes('finaliz') || t.includes('complet'))                            return 'Completed'
+    if (t.includes('hiatus')  || t.includes('pausa'))                              return 'Hiatus'
+    return 'Unknown'
+}
+
+// ── Source class ──────────────────────────────────────────────────────────────
+
+export class InManga implements
+    SearchResultsProviding,
+    MangaProviding,
+    ChapterProviding,
+    HomePageSectionsProviding
+{
+    constructor(private cheerio: CheerioAPI) {}
+
+    RETRIES = 3
+
+    requestManager = App.createRequestManager({
+        requestsPerSecond: 3,
+        requestTimeout: 20000,
+    })
+
+    getMangaShareUrl(mangaId: string): string {
+        return `${BASE_URL}/ver/manga/${getSlug(mangaId)}/${getMangaUuid(mangaId)}`
+    }
+
+    // ── getMangaDetails ───────────────────────────────────────────────────────
+
+    async getMangaDetails(mangaId: string): Promise<SourceManga> {
+        const slug = getSlug(mangaId)
+        const uuid = getMangaUuid(mangaId)
+        const resp = await this.requestManager.schedule(
+            App.createRequest({
+                url:     `${BASE_URL}/ver/manga/${slug}/${uuid}`,
+                method:  'GET',
+                headers: { Referer: BASE_URL },
+            }), this.RETRIES
+        )
+        const $ = this.cheerio.load(resp.data)
+
+        const title  = $('h1').first().text().trim() || slug.replace(/-/g, ' ')
+        const desc   = $('meta[name="description"]').attr('content')
+                    || $('meta[property="og:description"]').attr('content')
+                    || ''
+        const status = parseStatus(
+            $('span.label-success, span.label-warning, span.label-danger').first().text().trim()
+        )
+
+        return App.createSourceManga({
+            id: mangaId,
+            mangaInfo: App.createMangaInfo({ image: coverUrl(uuid), titles: [title], desc, status, hentai: false }),
+        })
+    }
+
+    // ── getChapters ───────────────────────────────────────────────────────────
+    // Chapter links on detail page: /ver/manga/{slug}/{chapNum}/{chapUuid}
+    // chapNum may contain commas: "1,187" → strip to "1187"
+
+    async getChapters(mangaId: string): Promise<Chapter[]> {
+        const slug = getSlug(mangaId)
+        const uuid = getMangaUuid(mangaId)
+        const resp = await this.requestManager.schedule(
+            App.createRequest({
+                url:     `${BASE_URL}/ver/manga/${slug}/${uuid}`,
+                method:  'GET',
+                headers: { Referer: BASE_URL },
+            }), this.RETRIES
+        )
+        const $ = this.cheerio.load(resp.data)
+
+        const chapters: Chapter[] = []
+        const seen = new Set<string>()
+
+        $(`a[href*="/ver/manga/"]`).each((_: number, el: Element) => {
+            const href = $(el).attr('href') ?? ''
+            // /ver/manga/{slug}/{chapNum}/{chapUuid}
+            const m = href.match(/\/ver\/manga\/[^/]+\/([0-9,]+)\/([a-f0-9-]{36})/i)
+            if (!m) return
+
+            const chapNumStr = m[1]!.replace(/,/g, '')
+            const chapUuid   = m[2]!.toLowerCase()
+            const chapId     = `${chapNumStr}|${chapUuid}`
+            if (seen.has(chapId)) return
+            seen.add(chapId)
+
+            chapters.push(App.createChapter({
+                id:       chapId,
+                chapNum:  parseFloat(chapNumStr),
+                name:     `Capítulo ${chapNumStr}`,
+                langCode: 'es',
+            }))
+        })
+
+        return chapters.sort((a, b) => b.chapNum - a.chapNum)
+    }
+
+    // ── getChapterDetails ─────────────────────────────────────────────────────
+    // Page IDs from #PageList option[value] — select is duplicated in DOM, deduplicate
+
+    async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
+        const slug      = getSlug(mangaId)
+        const mangaUuid = getMangaUuid(mangaId)
+        const chapNum   = getChapNum(chapterId)
+        const chapUuid  = getChapUuid(chapterId)
+
+        const resp = await this.requestManager.schedule(
+            App.createRequest({
+                url:     `${BASE_URL}/ver/manga/${slug}/${chapNum}/${chapUuid}`,
+                method:  'GET',
+                headers: { Referer: BASE_URL },
+            }), this.RETRIES
+        )
+        const $ = this.cheerio.load(resp.data)
+
+        const seen  = new Set<string>()
+        const pages: string[] = []
+
+        $('#PageList option').each((_: number, el: Element) => {
+            const pageId = $(el).attr('value') ?? ''
+            if (!pageId || seen.has(pageId)) return
+            seen.add(pageId)
+            pages.push(`${CDN_URL}/i/m/${mangaUuid}/c/${chapUuid}/o/${pageId}.jpg`)
+        })
+
+        return App.createChapterDetails({ id: chapterId, mangaId, pages })
+    }
+
+    // ── getHomePageSections ───────────────────────────────────────────────────
+
+    async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
+        const popular = App.createHomeSection({
+            id: 'popular', title: '📚 Catálogo',
+            type: HomeSectionType.singleRowNormal, containsMoreItems: true,
+        })
+        sectionCallback(popular)
+
+        const resp = await this.requestManager.schedule(
+            App.createRequest({
+                url: `${BASE_URL}/manga/consult`, method: 'GET', headers: { Referer: BASE_URL },
+            }), this.RETRIES
+        )
+        popular.items = this.parseTiles(this.cheerio.load(resp.data))
+        sectionCallback(popular)
+    }
+
+    async getViewMoreItems(_sectionId: string, metadata: any): Promise<PagedResults> {
+        const skip = metadata?.skip ?? 0
+        const take = 12
+
+        const resp = await this.requestManager.schedule(
+            App.createRequest({
+                url:    `${BASE_URL}/manga/getbyfiltres`,
+                method: 'POST',
+                headers: {
+                    'Content-Type':     'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    Referer:            BASE_URL,
+                },
+                data: `genres=&notGenres=&suggestion=&name=&skip=${skip}&take=${take}&sortby=1&broadcastStatus=0&filter=false`,
+            }), this.RETRIES
+        )
+        const tiles = this.parseTiles(this.cheerio.load(resp.data))
+
+        return App.createPagedResults({
+            results:  tiles,
+            metadata: tiles.length >= take ? { skip: skip + take } : undefined,
+        })
+    }
+
+    // ── getSearchResults ──────────────────────────────────────────────────────
+
+    async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
+        const term = (query.title ?? '').trim()
+        const skip = metadata?.skip ?? 0
+        const take = 12
+
+        const resp = await this.requestManager.schedule(
+            App.createRequest({
+                url:    `${BASE_URL}/manga/getbyfiltres`,
+                method: 'POST',
+                headers: {
+                    'Content-Type':     'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    Referer:            BASE_URL,
+                },
+                data: `genres=&notGenres=&suggestion=&name=${encodeURIComponent(term)}&skip=${skip}&take=${take}&sortby=1&broadcastStatus=0&filter=false`,
+            }), this.RETRIES
+        )
+        const tiles = this.parseTiles(this.cheerio.load(resp.data))
+        // Text search returns all results at once; only paginate when browsing
+        const hasNext = !term && tiles.length >= take
+
+        return App.createPagedResults({
+            results:  tiles,
+            metadata: hasNext ? { skip: skip + take } : undefined,
+        })
+    }
+
+    // ── parseTiles ────────────────────────────────────────────────────────────
+    // Manga card links: /ver/manga/{slug}/{uuid}  (no chapNum segment)
+
+    parseTiles($: CheerioAPI): PartialSourceManga[] {
+        const tiles: PartialSourceManga[] = []
+        const seen  = new Set<string>()
+
+        $('a[href*="/ver/manga/"]').each((_: number, el: Element) => {
+            const href = $(el).attr('href') ?? ''
+            // Must end with the UUID — chapter URLs have an extra segment after
+            const m = href.match(/\/ver\/manga\/([^/]+)\/([a-f0-9-]{36})\/?$/i)
+            if (!m) return
+
+            const slug    = m[1]!
+            const uuid    = m[2]!.toLowerCase()
+            const mangaId = `${slug}|${uuid}`
+            if (seen.has(mangaId)) return
+            seen.add(mangaId)
+
+            const img      = $(el).find('img').first()
+            const rawImage = img.attr('data-src') || img.attr('src') || ''
+            const image    = rawImage.startsWith('http') && !rawImage.includes('loading-gear')
+                ? rawImage
+                : coverUrl(uuid)
+
+            const title = (img.attr('alt') ?? '')
+                .replace(/ Manga Online - InManga$/i, '').trim()
+                || slug.replace(/-/g, ' ')
+
+            tiles.push(App.createPartialSourceManga({ mangaId, image, title }))
+        })
+
+        return tiles
+    }
+}
