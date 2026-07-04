@@ -189,25 +189,17 @@ export class InManga implements
     // ── getHomePageSections ───────────────────────────────────────────────────
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        const novedades = App.createHomeSection({ id: 'novedades', title: '🕒 Novedades',         type: HomeSectionType.singleRowNormal, containsMoreItems: false })
-        const favoritos = App.createHomeSection({ id: 'favoritos', title: '⭐️ Favoritos',          type: HomeSectionType.singleRowLarge,  containsMoreItems: false })
-        const catalogo  = App.createHomeSection({ id: 'catalogo',  title: '📚 Catálogo Completo', type: HomeSectionType.singleRowNormal, containsMoreItems: true  })
-
-        sectionCallback(novedades)
-        sectionCallback(favoritos)
-        sectionCallback(catalogo)
+        const popular = App.createHomeSection({
+            id: 'popular', title: '📚 Catálogo',
+            type: HomeSectionType.singleRowNormal, containsMoreItems: true,
+        })
+        sectionCallback(popular)
 
         const resp = await this.requestManager.schedule(
             App.createRequest({ url: `${BASE_URL}/manga/consult`, method: 'GET', headers: { Referer: BASE_URL } }), this.RETRIES
         )
-        const tiles = this.parseTiles(this.cheerio.load(resp.data))
-
-        novedades.items = tiles.slice(0, 15)
-        favoritos.items = tiles.slice(0, 15)
-        catalogo.items  = tiles.slice(0, 15)
-        sectionCallback(novedades)
-        sectionCallback(favoritos)
-        sectionCallback(catalogo)
+        popular.items = this.parseTiles(this.cheerio.load(resp.data))
+        sectionCallback(popular)
     }
 
     async getViewMoreItems(_sectionId: string, metadata: any): Promise<PagedResults> {

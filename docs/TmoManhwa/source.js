@@ -881,24 +881,20 @@ var _Sources = (() => {
     }
     // ── getHomePageSections ────────────────────────────────────────────────
     async getHomePageSections(sectionCallback) {
-      const novedades = App.createHomeSection({ id: "novedades", title: "\u{1F552} Novedades", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: false });
-      const favoritos = App.createHomeSection({ id: "favoritos", title: "\u2B50\uFE0F Favoritos", type: import_types.HomeSectionType.singleRowLarge, containsMoreItems: false });
-      const catalogo = App.createHomeSection({ id: "catalogo", title: "\u{1F4DA} Cat\xE1logo Completo", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true });
-      sectionCallback(novedades);
-      sectionCallback(favoritos);
-      sectionCallback(catalogo);
+      const latest = App.createHomeSection({ id: "latest", title: "\u{1F552} \xDAltimas actualizaciones", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true });
+      const popular = App.createHomeSection({ id: "library", title: "\u2B50\uFE0F Biblioteca completa", type: import_types.HomeSectionType.singleRowLarge, containsMoreItems: true });
+      sectionCallback(latest);
+      sectionCallback(popular);
       const resp = await this.requestManager.schedule(
         App.createRequest({ url: `${BASE_URL}/`, method: "GET" }),
         this.RETRIES
       );
       const $ = this.cheerio.load(resp.data);
       const tiles = this.parseTiles($);
-      novedades.items = tiles.slice(0, 15);
-      favoritos.items = tiles.slice(0, 15);
-      catalogo.items = tiles.slice(0, 15);
-      sectionCallback(novedades);
-      sectionCallback(favoritos);
-      sectionCallback(catalogo);
+      latest.items = tiles.slice(0, 15);
+      popular.items = tiles.slice(15, 30);
+      sectionCallback(latest);
+      sectionCallback(popular);
     }
     async getViewMoreItems(_, metadata) {
       const page = metadata?.page ?? 1;
