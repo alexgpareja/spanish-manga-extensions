@@ -13,6 +13,7 @@ import {
     SourceManga,
     TagSection,
     BadgeColor,
+    CloudflareBypassRequestProviding,
     HomePageSectionsProviding,
     MangaProviding,
     ChapterProviding,
@@ -40,7 +41,8 @@ export const TmoManhwaInfo: SourceInfo = {
         { text: '18+',     type: BadgeColor.YELLOW },
     ],
     intents: SourceIntents.MANGA_CHAPTERS
-           | SourceIntents.HOMEPAGE_SECTIONS,
+           | SourceIntents.HOMEPAGE_SECTIONS
+           | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,7 +78,8 @@ export class TmoManhwa implements
     SearchResultsProviding,
     MangaProviding,
     ChapterProviding,
-    HomePageSectionsProviding
+    HomePageSectionsProviding,
+    CloudflareBypassRequestProviding
 {
     constructor(private cheerio: CheerioAPI) {}
 
@@ -86,6 +89,10 @@ export class TmoManhwa implements
         requestsPerSecond: 3,
         requestTimeout: 20000,
     })
+
+    async getCloudflareBypassRequestAsync(): Promise<Request> {
+        return App.createRequest({ url: BASE_URL, method: 'GET' })
+    }
 
     getMangaShareUrl(mangaId: string): string {
         return `${BASE_URL}/manhwa/${getSlug(mangaId)}/`
@@ -203,8 +210,9 @@ export class TmoManhwa implements
 
         const resp = await this.requestManager.schedule(
             App.createRequest({
-                url:    `${BASE_URL}/manhwa/${slug}/capitulo-${chapNum}/`,
-                method: 'GET',
+                url:     `${BASE_URL}/manhwa/${slug}/capitulo-${chapNum}/`,
+                method:  'GET',
+                headers: { Referer: BASE_URL },
             }), this.RETRIES
         )
         const $ = this.cheerio.load(resp.data)
@@ -212,13 +220,14 @@ export class TmoManhwa implements
         const pages: string[] = []
         const seen = new Set<string>()
 
-        // Imágenes del lector: #chapter-images img con src directo al CDN
         $('#chapter-images img, .reading-content img').each((_: number, el: Element) => {
-            const src = $(el).attr('src')
-                     ?? $(el).attr('data-src')
-                     ?? $(el).attr('data-lazy-src')
-                     ?? ''
-            if (src.startsWith('http') && src.includes(IMG_CDN.replace('https://', '')) && !seen.has(src)) {
+            // data-src is the raw HTML attr; src is set by JS lazy-loader (empty in raw HTML)
+            const src = $(el).attr('data-src')
+                     || $(el).attr('src')
+                     || $(el).attr('data-lazy-src')
+                     || $(el).attr('data-original')
+                     || ''
+            if (src.startsWith('http') && !seen.has(src)) {
                 seen.add(src)
                 pages.push(src)
             }
