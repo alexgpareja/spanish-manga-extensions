@@ -1,0 +1,19 @@
+{
+  "name": "spanish-manga-extensions",
+  "version": "1.0.0",
+  "repositoryName": "Spanish Manga Sources",
+  "description": "Extensiones de manga en Español para Paperback",
+  "scripts": {
+    "bundle": "npx paperback bundle",
+    "serve":  "npx paperback serve"
+  },
+  "author": "alexgpareja",
+  "license": "GPL-3.0-or-later",
+  "dependencies": {
+    "@paperback/toolchain": "^0.8.0-alpha.38",
+    "@paperback/types":     "^0.8.0-alpha.38"
+  },
+  "devDependencies": {
+    "typescript": "^4.3.2"
+  }
+}
