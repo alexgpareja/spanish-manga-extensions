@@ -194,32 +194,14 @@ export class InManga implements
             type: HomeSectionType.singleRowNormal, containsMoreItems: true,
         })
         sectionCallback(popular)
-
-        const resp = await this.requestManager.schedule(
-            App.createRequest({ url: `${BASE_URL}/manga/consult`, method: 'GET', headers: { Referer: BASE_URL } }), this.RETRIES
-        )
-        popular.items = this.parseTiles(this.cheerio.load(resp.data))
+        popular.items = await this.fetchCatalog('', 0, 15)
         sectionCallback(popular)
     }
 
     async getViewMoreItems(_sectionId: string, metadata: any): Promise<PagedResults> {
         const skip = metadata?.skip ?? 0
         const take = 12
-
-        const resp = await this.requestManager.schedule(
-            App.createRequest({
-                url:    `${BASE_URL}/manga/getbyfiltres`,
-                method: 'POST',
-                headers: {
-                    'Content-Type':     'application/x-www-form-urlencoded',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    Referer:            BASE_URL,
-                },
-                data: `genres=&notGenres=&suggestion=&name=&skip=${skip}&take=${take}&sortby=1&broadcastStatus=0&filter=false`,
-            }), this.RETRIES
-        )
-        const tiles = this.parseTiles(this.cheerio.load(resp.data))
-
+        const tiles = await this.fetchCatalog('', skip, take)
         return App.createPagedResults({
             results:  tiles,
             metadata: tiles.length >= take ? { skip: skip + take } : undefined,
@@ -232,27 +214,34 @@ export class InManga implements
         const term = (query.title ?? '').trim()
         const skip = metadata?.skip ?? 0
         const take = 12
+        const tiles = await this.fetchCatalog(term, skip, take)
+        const hasNext = tiles.length >= take
+        return App.createPagedResults({
+            results:  tiles,
+            metadata: hasNext ? { skip: skip + take } : undefined,
+        })
+    }
 
+    // ── fetchCatalog ──────────────────────────────────────────────────────────
+    // Real endpoint: POST /manga/getMangasConsultResult
+    // Only skip/take/sortby — any extra param activates a user-favorites filter
+
+    private async fetchCatalog(name: string, skip: number, take: number): Promise<PartialSourceManga[]> {
+        let body = `skip=${skip}&take=${take}&sortby=1`
+        if (name) body += `&name=${encodeURIComponent(name)}`
         const resp = await this.requestManager.schedule(
             App.createRequest({
-                url:    `${BASE_URL}/manga/getbyfiltres`,
+                url:    `${BASE_URL}/manga/getMangasConsultResult`,
                 method: 'POST',
                 headers: {
                     'Content-Type':     'application/x-www-form-urlencoded',
                     'X-Requested-With': 'XMLHttpRequest',
                     Referer:            BASE_URL,
                 },
-                data: `genres=&notGenres=&suggestion=&name=${encodeURIComponent(term)}&skip=${skip}&take=${take}&sortby=1&broadcastStatus=0&filter=false`,
+                data: body,
             }), this.RETRIES
         )
-        const tiles = this.parseTiles(this.cheerio.load(resp.data))
-        // Text search returns all results at once; only paginate when browsing
-        const hasNext = !term && tiles.length >= take
-
-        return App.createPagedResults({
-            results:  tiles,
-            metadata: hasNext ? { skip: skip + take } : undefined,
-        })
+        return this.parseTiles(this.cheerio.load(resp.data))
     }
 
     // ── parseTiles ────────────────────────────────────────────────────────────
