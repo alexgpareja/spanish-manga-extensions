@@ -729,7 +729,6 @@ var _Sources = (() => {
   });
   var import_types = __toESM(require_lib());
   var BASE_URL = "https://tmomanhwa.com";
-  var IMG_CDN = "https://img01.tmomanhwa.com";
   var TmoManhwaInfo = {
     version: "1.0.0",
     name: "TmoManhwa",
@@ -860,7 +859,8 @@ var _Sources = (() => {
       const resp = await this.requestManager.schedule(
         App.createRequest({
           url: `${BASE_URL}/manhwa/${slug}/capitulo-${chapNum}/`,
-          method: "GET"
+          method: "GET",
+          headers: { Referer: BASE_URL }
         }),
         this.RETRIES
       );
@@ -869,7 +869,7 @@ var _Sources = (() => {
       const seen = /* @__PURE__ */ new Set();
       $("#chapter-images img, .reading-content img").each((_, el) => {
         const src = $(el).attr("src") ?? $(el).attr("data-src") ?? $(el).attr("data-lazy-src") ?? "";
-        if (src.startsWith("http") && src.includes(IMG_CDN.replace("https://", "")) && !seen.has(src)) {
+        if (src.startsWith("http") && !seen.has(src)) {
           seen.add(src);
           pages.push(src);
         }
