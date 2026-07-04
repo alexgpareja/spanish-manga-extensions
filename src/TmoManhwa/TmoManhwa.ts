@@ -239,11 +239,13 @@ export class TmoManhwa implements
     // ── getHomePageSections ────────────────────────────────────────────────
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        const latest  = App.createHomeSection({ id: 'latest',  title: '🕒 Últimas actualizaciones', type: HomeSectionType.singleRowNormal, containsMoreItems: true })
-        const popular = App.createHomeSection({ id: 'library', title: '⭐️ Biblioteca completa',      type: HomeSectionType.singleRowLarge,  containsMoreItems: true })
+        const novedades = App.createHomeSection({ id: 'novedades', title: '🕒 Novedades',         type: HomeSectionType.singleRowNormal, containsMoreItems: false })
+        const favoritos = App.createHomeSection({ id: 'favoritos', title: '⭐️ Favoritos',          type: HomeSectionType.singleRowLarge,  containsMoreItems: false })
+        const catalogo  = App.createHomeSection({ id: 'catalogo',  title: '📚 Catálogo Completo', type: HomeSectionType.singleRowNormal, containsMoreItems: true  })
 
-        sectionCallback(latest)
-        sectionCallback(popular)
+        sectionCallback(novedades)
+        sectionCallback(favoritos)
+        sectionCallback(catalogo)
 
         const resp = await this.requestManager.schedule(
             App.createRequest({ url: `${BASE_URL}/`, method: 'GET' }), this.RETRIES
@@ -251,10 +253,12 @@ export class TmoManhwa implements
         const $ = this.cheerio.load(resp.data)
         const tiles = this.parseTiles($)
 
-        latest.items  = tiles.slice(0, 15)
-        popular.items = tiles.slice(15, 30)
-        sectionCallback(latest)
-        sectionCallback(popular)
+        novedades.items = tiles.slice(0, 15)
+        favoritos.items = tiles.slice(0, 15)
+        catalogo.items  = tiles.slice(0, 15)
+        sectionCallback(novedades)
+        sectionCallback(favoritos)
+        sectionCallback(catalogo)
     }
 
     async getViewMoreItems(_: string, metadata: any): Promise<PagedResults> {

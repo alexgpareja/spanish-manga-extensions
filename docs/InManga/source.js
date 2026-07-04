@@ -865,23 +865,23 @@ var _Sources = (() => {
     }
     // ── getHomePageSections ───────────────────────────────────────────────────
     async getHomePageSections(sectionCallback) {
-      const popular = App.createHomeSection({
-        id: "popular",
-        title: "\u{1F4DA} Cat\xE1logo",
-        type: import_types.HomeSectionType.singleRowNormal,
-        containsMoreItems: true
-      });
-      sectionCallback(popular);
+      const novedades = App.createHomeSection({ id: "novedades", title: "\u{1F552} Novedades", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: false });
+      const favoritos = App.createHomeSection({ id: "favoritos", title: "\u2B50\uFE0F Favoritos", type: import_types.HomeSectionType.singleRowLarge, containsMoreItems: false });
+      const catalogo = App.createHomeSection({ id: "catalogo", title: "\u{1F4DA} Cat\xE1logo Completo", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true });
+      sectionCallback(novedades);
+      sectionCallback(favoritos);
+      sectionCallback(catalogo);
       const resp = await this.requestManager.schedule(
-        App.createRequest({
-          url: `${BASE_URL}/manga/consult`,
-          method: "GET",
-          headers: { Referer: BASE_URL }
-        }),
+        App.createRequest({ url: `${BASE_URL}/manga/consult`, method: "GET", headers: { Referer: BASE_URL } }),
         this.RETRIES
       );
-      popular.items = this.parseTiles(this.cheerio.load(resp.data));
-      sectionCallback(popular);
+      const tiles = this.parseTiles(this.cheerio.load(resp.data));
+      novedades.items = tiles.slice(0, 15);
+      favoritos.items = tiles.slice(0, 15);
+      catalogo.items = tiles.slice(0, 15);
+      sectionCallback(novedades);
+      sectionCallback(favoritos);
+      sectionCallback(catalogo);
     }
     async getViewMoreItems(_sectionId, metadata) {
       const skip = metadata?.skip ?? 0;
