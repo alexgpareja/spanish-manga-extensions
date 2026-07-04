@@ -6,12 +6,14 @@ import {
     HomeSectionType,
     PagedResults,
     PartialSourceManga,
+    Request,
     SearchRequest,
     SourceInfo,
     SourceIntents,
     SourceManga,
     TagSection,
     BadgeColor,
+    CloudflareBypassRequestProviding,
     HomePageSectionsProviding,
     MangaProviding,
     ChapterProviding,
@@ -32,7 +34,8 @@ export const InMangaInfo: SourceInfo = {
     language:       'es',
     sourceTags: [{ text: 'Español', type: BadgeColor.GREY }],
     intents: SourceIntents.MANGA_CHAPTERS
-           | SourceIntents.HOMEPAGE_SECTIONS,
+           | SourceIntents.HOMEPAGE_SECTIONS
+           | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
 }
 
 // ── ID helpers ────────────────────────────────────────────────────────────────
@@ -62,7 +65,8 @@ export class InManga implements
     SearchResultsProviding,
     MangaProviding,
     ChapterProviding,
-    HomePageSectionsProviding
+    HomePageSectionsProviding,
+    CloudflareBypassRequestProviding
 {
     constructor(private cheerio: CheerioAPI) {}
 
@@ -72,6 +76,10 @@ export class InManga implements
         requestsPerSecond: 3,
         requestTimeout: 20000,
     })
+
+    async getCloudflareBypassRequestAsync(): Promise<Request> {
+        return App.createRequest({ url: BASE_URL, method: 'GET' })
+    }
 
     getMangaShareUrl(mangaId: string): string {
         return `${BASE_URL}/ver/manga/${getSlug(mangaId)}/${getMangaUuid(mangaId)}`

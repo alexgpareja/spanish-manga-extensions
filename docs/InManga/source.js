@@ -740,7 +740,7 @@ var _Sources = (() => {
     websiteBaseURL: BASE_URL,
     language: "es",
     sourceTags: [{ text: "Espa\xF1ol", type: import_types.BadgeColor.GREY }],
-    intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS
+    intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED
   };
   function getSlug(mangaId) {
     return mangaId.split("|")[0] ?? mangaId;
@@ -772,6 +772,9 @@ var _Sources = (() => {
         requestsPerSecond: 3,
         requestTimeout: 2e4
       });
+    }
+    async getCloudflareBypassRequestAsync() {
+      return App.createRequest({ url: BASE_URL, method: "GET" });
     }
     getMangaShareUrl(mangaId) {
       return `${BASE_URL}/ver/manga/${getSlug(mangaId)}/${getMangaUuid(mangaId)}`;
