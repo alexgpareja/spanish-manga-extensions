@@ -153,17 +153,17 @@ export class InManga implements
     }
 
     // ── getChapterDetails ─────────────────────────────────────────────────────
-    // Page IDs from #PageList option[value] — select is duplicated in DOM, deduplicate
+    // Page IDs from GET /chapter/chapterIndexControls?identification={chapUuid}
+    // Returns 175KB HTML with #PageList options populated (server-side rendered with auth)
+    // Wrong param (?chapterIdentification=) returns 8KB with empty #PageList
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        const slug      = getSlug(mangaId)
         const mangaUuid = getMangaUuid(mangaId)
-        const chapNum   = getChapNum(chapterId)
         const chapUuid  = getChapUuid(chapterId)
 
         const resp = await this.requestManager.schedule(
             App.createRequest({
-                url:     `${BASE_URL}/ver/manga/${slug}/${chapNum}/${chapUuid}`,
+                url:     `${BASE_URL}/chapter/chapterIndexControls?identification=${chapUuid}`,
                 method:  'GET',
                 headers: { Referer: BASE_URL },
             }), this.RETRIES

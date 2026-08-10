@@ -729,6 +729,7 @@ var _Sources = (() => {
   });
   var import_types = __toESM(require_lib());
   var BASE_URL = "https://tmomanhwa.com";
+  var IMG_CDN = "https://img01.tmomanhwa.com";
   var TmoManhwaInfo = {
     version: "1.0.0",
     name: "TmoManhwa",
@@ -742,7 +743,7 @@ var _Sources = (() => {
       { text: "Espa\xF1ol", type: import_types.BadgeColor.GREY },
       { text: "18+", type: import_types.BadgeColor.YELLOW }
     ],
-    intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED
+    intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS
   };
   function getSlug(mangaId) {
     return mangaId.split("_")[0] ?? mangaId;
@@ -768,9 +769,6 @@ var _Sources = (() => {
         requestsPerSecond: 3,
         requestTimeout: 2e4
       });
-    }
-    async getCloudflareBypassRequestAsync() {
-      return App.createRequest({ url: BASE_URL, method: "GET" });
     }
     getMangaShareUrl(mangaId) {
       return `${BASE_URL}/manhwa/${getSlug(mangaId)}/`;
@@ -862,8 +860,7 @@ var _Sources = (() => {
       const resp = await this.requestManager.schedule(
         App.createRequest({
           url: `${BASE_URL}/manhwa/${slug}/capitulo-${chapNum}/`,
-          method: "GET",
-          headers: { Referer: BASE_URL }
+          method: "GET"
         }),
         this.RETRIES
       );
@@ -871,8 +868,8 @@ var _Sources = (() => {
       const pages = [];
       const seen = /* @__PURE__ */ new Set();
       $("#chapter-images img, .reading-content img").each((_, el) => {
-        const src = $(el).attr("data-src") || $(el).attr("src") || $(el).attr("data-lazy-src") || $(el).attr("data-original") || "";
-        if (src.startsWith("http") && !seen.has(src)) {
+        const src = $(el).attr("src") ?? $(el).attr("data-src") ?? $(el).attr("data-lazy-src") ?? "";
+        if (src.startsWith("http") && src.includes(IMG_CDN.replace("https://", "")) && !seen.has(src)) {
           seen.add(src);
           pages.push(src);
         }
