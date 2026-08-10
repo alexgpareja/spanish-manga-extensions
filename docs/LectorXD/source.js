@@ -731,7 +731,7 @@ var _Sources = (() => {
   var BASE_URL = "https://lectorxd.com";
   var CDN_URL = "https://s1.cdnlxd.xyz";
   var LectorXDInfo = {
-    version: "1.0.1",
+    version: "1.0.2",
     name: "LectorXD",
     icon: "icon.png",
     author: "alexgpareja",
@@ -754,30 +754,42 @@ var _Sources = (() => {
   function coverUrl(slug) {
     return `${CDN_URL}/manga/covers/${slug}.webp`;
   }
-  function parseStatus(apiStatus) {
-    switch (apiStatus) {
-      case "en_emision":
-        return "Ongoing";
-      case "completado":
-        return "Completed";
-      case "cancelado":
-        return "Cancelled";
-      case "hiatus":
-        return "Hiatus";
-      default:
-        if (apiStatus?.includes("emision") || apiStatus?.includes("curso")) return "Ongoing";
-        if (apiStatus?.includes("complet") || apiStatus?.includes("finaliz")) return "Completed";
-        return "Unknown";
+  function parseStatus(s) {
+    if (!s) return "Unknown";
+    if (s.includes("emision") || s.includes("curso") || s === "en_emision") return "Ongoing";
+    if (s.includes("complet") || s.includes("finaliz")) return "Completed";
+    if (s.includes("cancel")) return "Cancelled";
+    if (s.includes("hiatus") || s.includes("pausa")) return "Hiatus";
+    return "Unknown";
+  }
+  function extractJsonArray(html, marker) {
+    const markerIdx = html.indexOf(marker);
+    if (markerIdx === -1) return null;
+    const arrayStart = html.indexOf("[", markerIdx);
+    if (arrayStart === -1) return null;
+    let depth = 0, endIdx = -1;
+    for (let i = arrayStart; i < html.length; i++) {
+      if (html[i] === "[") depth++;
+      else if (html[i] === "]") {
+        depth--;
+        if (depth === 0) {
+          endIdx = i;
+          break;
+        }
+      }
+    }
+    if (endIdx === -1) return null;
+    try {
+      return JSON.parse(html.substring(arrayStart, endIdx + 1));
+    } catch {
+      return null;
     }
   }
   var LectorXD = class {
     constructor(cheerio) {
       this.cheerio = cheerio;
       this.RETRIES = 3;
-      this.requestManager = App.createRequestManager({
-        requestsPerSecond: 3,
-        requestTimeout: 2e4
-      });
+      this.requestManager = App.createRequestManager({ requestsPerSecond: 3, requestTimeout: 2e4 });
     }
     async getCloudflareBypassRequestAsync() {
       return App.createRequest({ url: BASE_URL, method: "GET" });
@@ -786,9 +798,7 @@ var _Sources = (() => {
       return `${BASE_URL}/${mangaId}`;
     }
     // ── getMangaDetails ──────────────────────────────────────────────────────
-    // Usa la API /api/catalog?search=TITLE para obtener descripción,
-    // géneros y estado completos. El slug se convierte en título de búsqueda
-    // reemplazando guiones por espacios.
+    // Usa /api/catalog?search=TITULO para obtener desc, géneros y estado.
     async getMangaDetails(mangaId) {
       const slug = getSlug(mangaId);
       const titleHint = slug.replace(/-/g, " ");
@@ -809,14 +819,14 @@ var _Sources = (() => {
       const title = manga?.title || slug.replace(/-/g, " ");
       const desc = manga?.description || "";
       const image = manga?.coverImage || coverUrl(slug);
-      const status = manga ? parseStatus(manga.status) : "Unknown";
+      const status = parseStatus(manga?.status ?? "");
       const tagItems = [];
-      const seenTags = /* @__PURE__ */ new Set();
+      const seen = /* @__PURE__ */ new Set();
       for (const t of manga?.tags ?? []) {
         const id = t.tag?.slug ?? String(t.tagId);
         const label = t.tag?.name ?? id;
-        if (!seenTags.has(id)) {
-          seenTags.add(id);
+        if (!seen.has(id)) {
+          seen.add(id);
           tagItems.push(App.createTag({ id, label }));
         }
       }
@@ -827,8 +837,8 @@ var _Sources = (() => {
       });
     }
     // ── getChapters ──────────────────────────────────────────────────────────
-    // Parsea `const chaptersList = [...]` embebido en el HTML de detalle.
-    // Formato: [{"chapter":"1","groupId":null}, ...]
+    // Extrae `chaptersList = [...]` del HTML usando contador de brackets.
+    // La regex falla con listas largas (+400 caps) — este método es robusto.
     async getChapters(mangaId) {
       const resp = await this.requestManager.schedule(
         App.createRequest({
@@ -838,25 +848,8 @@ var _Sources = (() => {
         }),
         this.RETRIES
       );
-      const m = resp.data.match(/chaptersList\s*=\s*(\[[\s\S]+?\]);?\s*(?:const|let|var|<)/);
-      if (!m) {
-        const m2 = resp.data.match(/\[\s*\{[\s\S]*?"chapter"[\s\S]*?\}\s*\]/);
-        if (!m2) return [];
-        try {
-          const list = JSON.parse(m2[0]);
-          return this.parseChapterList(list, mangaId);
-        } catch {
-          return [];
-        }
-      }
-      try {
-        const list = JSON.parse(m[1]);
-        return this.parseChapterList(list, mangaId);
-      } catch {
-        return [];
-      }
-    }
-    parseChapterList(list, mangaId) {
+      const list = extractJsonArray(resp.data, "chaptersList = [");
+      if (!list) return [];
       const seen = /* @__PURE__ */ new Set();
       return list.filter((c) => {
         if (seen.has(c.chapter)) return false;
@@ -870,9 +863,7 @@ var _Sources = (() => {
       })).sort((a, b) => b.chapNum - a.chapNum);
     }
     // ── getChapterDetails ────────────────────────────────────────────────────
-    // URL: /{type}/{slug}/leer/{chapNum}
-    // Imágenes: img.page-image con atributo src directo al CDN cdnlxd.xyz
-    // NOTA: Las imágenes usan src (no data-src) y tienen clase "page-image"
+    // Imágenes en img.page-image con src directo — NO data-src.
     async getChapterDetails(mangaId, chapterId) {
       const resp = await this.requestManager.schedule(
         App.createRequest({
@@ -902,18 +893,17 @@ var _Sources = (() => {
         });
       }
       if (pages.length === 0) {
-        const rawHtml = resp.data;
-        for (const m of rawHtml.matchAll(/\"url\":\"(https?:\/\/[^"]*cdnlxd[^"]+)\"/g)) {
-          if (!seen.has(m[1])) {
-            seen.add(m[1]);
-            pages.push(m[1]);
-          }
-        }
-        for (const m of rawHtml.matchAll(/\"(\/\d+\/[0-9.]+\/\d+\.[a-z]+)\"/g)) {
-          const url = `${CDN_URL}${m[1]}`;
-          if (!seen.has(url)) {
-            seen.add(url);
-            pages.push(url);
+        const list = extractJsonArray(resp.data, '"pages":[');
+        if (list) {
+          for (const p of list) {
+            const path = typeof p === "string" ? p : p?.[1]?.[0] ?? "";
+            if (path) {
+              const url = path.startsWith("http") ? path : `${CDN_URL}${path}`;
+              if (!seen.has(url)) {
+                seen.add(url);
+                pages.push(url);
+              }
+            }
           }
         }
       }
@@ -921,18 +911,17 @@ var _Sources = (() => {
     }
     // ── getHomePageSections ──────────────────────────────────────────────────
     async getHomePageSections(sectionCallback) {
-      const catalog = App.createHomeSection({
+      const s = App.createHomeSection({
         id: "catalog",
         title: "\u{1F4DA} Cat\xE1logo",
         type: import_types.HomeSectionType.singleRowNormal,
         containsMoreItems: true
       });
-      sectionCallback(catalog);
-      const tiles = await this.fetchCatalog("", 1);
-      catalog.items = tiles;
-      sectionCallback(catalog);
+      sectionCallback(s);
+      s.items = await this.fetchCatalog("", 1);
+      sectionCallback(s);
     }
-    async getViewMoreItems(_sectionId, metadata) {
+    async getViewMoreItems(_, metadata) {
       const page = metadata?.page ?? 1;
       const tiles = await this.fetchCatalog("", page);
       return App.createPagedResults({
@@ -950,19 +939,37 @@ var _Sources = (() => {
         metadata: !term && tiles.length >= 24 ? { page: page + 1 } : void 0
       });
     }
+    async getSearchTags() {
+      const genres = [
+        ["accion", "Acci\xF3n"],
+        ["aventura", "Aventura"],
+        ["comedia", "Comedia"],
+        ["drama", "Drama"],
+        ["ecchi", "Ecchi"],
+        ["fantasia", "Fantas\xEDa"],
+        ["harem", "Harem"],
+        ["horror", "Horror"],
+        ["isekai", "Isekai"],
+        ["romance", "Romance"],
+        ["seinen", "Seinen"],
+        ["shounen", "Shounen"],
+        ["shoujo", "Shoujo"],
+        ["sobrenatural", "Sobrenatural"],
+        ["sistema-de-niveles", "Sistema de Niveles"],
+        ["reencarnacion", "Reencarnaci\xF3n"]
+      ];
+      return [App.createTagSection({
+        id: "genres",
+        label: "G\xE9neros",
+        tags: genres.map(([id, label]) => App.createTag({ id, label }))
+      })];
+    }
     // ── fetchCatalog ─────────────────────────────────────────────────────────
-    // GET /api/catalog?page=N[&search=term]
-    // Respuesta: { totalCount, mangas: [{id, title, slug, description, coverImage,
-    //   status, type, tags:[{tag:{name,slug}}]}] }
     async fetchCatalog(search, page) {
       let url = `${BASE_URL}/api/catalog?page=${page}`;
       if (search) url += `&search=${encodeURIComponent(search)}`;
       const resp = await this.requestManager.schedule(
-        App.createRequest({
-          url,
-          method: "GET",
-          headers: { Referer: BASE_URL, Accept: "application/json" }
-        }),
+        App.createRequest({ url, method: "GET", headers: { Referer: BASE_URL, Accept: "application/json" } }),
         this.RETRIES
       );
       let data;
