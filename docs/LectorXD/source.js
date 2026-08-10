@@ -731,7 +731,7 @@ var _Sources = (() => {
   var BASE_URL = "https://lectorxd.com";
   var CDN_URL = "https://s1.cdnlxd.xyz";
   var LectorXDInfo = {
-    version: "1.0.0",
+    version: "1.0.1",
     name: "LectorXD",
     icon: "icon.png",
     author: "alexgpareja",
@@ -754,13 +754,21 @@ var _Sources = (() => {
   function coverUrl(slug) {
     return `${CDN_URL}/manga/covers/${slug}.webp`;
   }
-  function parseStatus(text) {
-    const t = text.toLowerCase();
-    if (t.includes("emisi\xF3n") || t.includes("curso") || t.includes("ongoing")) return "Ongoing";
-    if (t.includes("complet") || t.includes("finaliz")) return "Completed";
-    if (t.includes("cancel")) return "Cancelled";
-    if (t.includes("hiatus") || t.includes("pausa")) return "Hiatus";
-    return "Unknown";
+  function parseStatus(apiStatus) {
+    switch (apiStatus) {
+      case "en_emision":
+        return "Ongoing";
+      case "completado":
+        return "Completed";
+      case "cancelado":
+        return "Cancelled";
+      case "hiatus":
+        return "Hiatus";
+      default:
+        if (apiStatus?.includes("emision") || apiStatus?.includes("curso")) return "Ongoing";
+        if (apiStatus?.includes("complet") || apiStatus?.includes("finaliz")) return "Completed";
+        return "Unknown";
+    }
   }
   var LectorXD = class {
     constructor(cheerio) {
@@ -777,34 +785,50 @@ var _Sources = (() => {
     getMangaShareUrl(mangaId) {
       return `${BASE_URL}/${mangaId}`;
     }
-    // ── getMangaDetails ────────────────────────────────────────────────────────
-    // Fetches /{type}/{slug} HTML — title from h1, desc from og:description,
-    // cover from CDN pattern, status from body text
+    // ── getMangaDetails ──────────────────────────────────────────────────────
+    // Usa la API /api/catalog?search=TITLE para obtener descripción,
+    // géneros y estado completos. El slug se convierte en título de búsqueda
+    // reemplazando guiones por espacios.
     async getMangaDetails(mangaId) {
       const slug = getSlug(mangaId);
-      const resp = await this.requestManager.schedule(
+      const titleHint = slug.replace(/-/g, " ");
+      const apiResp = await this.requestManager.schedule(
         App.createRequest({
-          url: `${BASE_URL}/${mangaId}`,
+          url: `${BASE_URL}/api/catalog?search=${encodeURIComponent(titleHint)}&page=1`,
           method: "GET",
-          headers: { Referer: BASE_URL }
+          headers: { Referer: BASE_URL, Accept: "application/json" }
         }),
         this.RETRIES
       );
-      const $ = this.cheerio.load(resp.data);
-      const title = $("h1").first().text().trim() || $('meta[property="og:title"]').attr("content")?.replace(/\s*[-|].*Lector XD.*$/i, "").trim() || slug.replace(/-/g, " ");
-      const ogDesc = $('meta[property="og:description"]').attr("content") ?? "";
-      const desc = ogDesc.includes("Sinopsis:") ? ogDesc.split("Sinopsis:").slice(1).join("Sinopsis:").trim() : ogDesc;
-      const image = coverUrl(slug);
-      const statusText = $('[class*="status"], [class*="estado"]').first().text().trim() || (resp.data.match(/\b(completado|en emisión|cancelado|hiatus|en pausa)\b/i)?.[1] ?? "");
-      const status = parseStatus(statusText);
+      let manga = null;
+      try {
+        const data = JSON.parse(apiResp.data);
+        manga = (data.mangas ?? []).find((m) => m.slug === slug) ?? (data.mangas ?? [])[0];
+      } catch {
+      }
+      const title = manga?.title || slug.replace(/-/g, " ");
+      const desc = manga?.description || "";
+      const image = manga?.coverImage || coverUrl(slug);
+      const status = manga ? parseStatus(manga.status) : "Unknown";
+      const tagItems = [];
+      const seenTags = /* @__PURE__ */ new Set();
+      for (const t of manga?.tags ?? []) {
+        const id = t.tag?.slug ?? String(t.tagId);
+        const label = t.tag?.name ?? id;
+        if (!seenTags.has(id)) {
+          seenTags.add(id);
+          tagItems.push(App.createTag({ id, label }));
+        }
+      }
+      const tags = tagItems.length ? [App.createTagSection({ id: "genres", label: "G\xE9neros", tags: tagItems })] : [];
       return App.createSourceManga({
         id: mangaId,
-        mangaInfo: App.createMangaInfo({ image, titles: [title], desc, status, hentai: false })
+        mangaInfo: App.createMangaInfo({ image, titles: [title], desc, status, tags, hentai: false })
       });
     }
-    // ── getChapters ────────────────────────────────────────────────────────────
-    // Parses `const chaptersList = [...]` embedded in manga detail HTML
-    // Each entry: { chapter: "N", groupId: null }
+    // ── getChapters ──────────────────────────────────────────────────────────
+    // Parsea `const chaptersList = [...]` embebido en el HTML de detalle.
+    // Formato: [{"chapter":"1","groupId":null}, ...]
     async getChapters(mangaId) {
       const resp = await this.requestManager.schedule(
         App.createRequest({
@@ -814,14 +838,25 @@ var _Sources = (() => {
         }),
         this.RETRIES
       );
-      const m = resp.data.match(/const chaptersList = (\[[\s\S]*?\]);/);
-      if (!m) return [];
-      let list = [];
+      const m = resp.data.match(/chaptersList\s*=\s*(\[[\s\S]+?\]);?\s*(?:const|let|var|<)/);
+      if (!m) {
+        const m2 = resp.data.match(/\[\s*\{[\s\S]*?"chapter"[\s\S]*?\}\s*\]/);
+        if (!m2) return [];
+        try {
+          const list = JSON.parse(m2[0]);
+          return this.parseChapterList(list, mangaId);
+        } catch {
+          return [];
+        }
+      }
       try {
-        list = JSON.parse(m[1]);
+        const list = JSON.parse(m[1]);
+        return this.parseChapterList(list, mangaId);
       } catch {
         return [];
       }
+    }
+    parseChapterList(list, mangaId) {
       const seen = /* @__PURE__ */ new Set();
       return list.filter((c) => {
         if (seen.has(c.chapter)) return false;
@@ -834,9 +869,10 @@ var _Sources = (() => {
         langCode: "es"
       })).sort((a, b) => b.chapNum - a.chapNum);
     }
-    // ── getChapterDetails ──────────────────────────────────────────────────────
-    // Fetches /{type}/{slug}/leer/{chapNum} HTML
-    // Images in img[data-src*="cdnlxd"] — lazy-loaded, full URL in data-src
+    // ── getChapterDetails ────────────────────────────────────────────────────
+    // URL: /{type}/{slug}/leer/{chapNum}
+    // Imágenes: img.page-image con atributo src directo al CDN cdnlxd.xyz
+    // NOTA: Las imágenes usan src (no data-src) y tienen clase "page-image"
     async getChapterDetails(mangaId, chapterId) {
       const resp = await this.requestManager.schedule(
         App.createRequest({
@@ -849,16 +885,41 @@ var _Sources = (() => {
       const $ = this.cheerio.load(resp.data);
       const seen = /* @__PURE__ */ new Set();
       const pages = [];
-      $("img[data-src]").each((_, el) => {
-        const src = $(el).attr("data-src") ?? "";
+      $('img.page-image, img[class*="page-image"]').each((_, el) => {
+        const src = $(el).attr("src") ?? "";
         if (src.includes("cdnlxd") && !seen.has(src)) {
           seen.add(src);
           pages.push(src);
         }
       });
+      if (pages.length === 0) {
+        $("img").each((_, el) => {
+          const src = $(el).attr("src") ?? $(el).attr("data-src") ?? "";
+          if (src.includes("cdnlxd") && !seen.has(src)) {
+            seen.add(src);
+            pages.push(src);
+          }
+        });
+      }
+      if (pages.length === 0) {
+        const rawHtml = resp.data;
+        for (const m of rawHtml.matchAll(/\"url\":\"(https?:\/\/[^"]*cdnlxd[^"]+)\"/g)) {
+          if (!seen.has(m[1])) {
+            seen.add(m[1]);
+            pages.push(m[1]);
+          }
+        }
+        for (const m of rawHtml.matchAll(/\"(\/\d+\/[0-9.]+\/\d+\.[a-z]+)\"/g)) {
+          const url = `${CDN_URL}${m[1]}`;
+          if (!seen.has(url)) {
+            seen.add(url);
+            pages.push(url);
+          }
+        }
+      }
       return App.createChapterDetails({ id: chapterId, mangaId, pages });
     }
-    // ── getHomePageSections ────────────────────────────────────────────────────
+    // ── getHomePageSections ──────────────────────────────────────────────────
     async getHomePageSections(sectionCallback) {
       const catalog = App.createHomeSection({
         id: "catalog",
@@ -879,20 +940,20 @@ var _Sources = (() => {
         metadata: tiles.length >= 24 ? { page: page + 1 } : void 0
       });
     }
-    // ── getSearchResults ───────────────────────────────────────────────────────
+    // ── getSearchResults ─────────────────────────────────────────────────────
     async getSearchResults(query, metadata) {
       const term = (query.title ?? "").trim();
       const page = metadata?.page ?? 1;
       const tiles = await this.fetchCatalog(term, page);
       return App.createPagedResults({
         results: tiles,
-        // Search results are not paginated on LectorXD — all on page 1
         metadata: !term && tiles.length >= 24 ? { page: page + 1 } : void 0
       });
     }
-    // ── fetchCatalog ───────────────────────────────────────────────────────────
-    // GET /api/catalog?page=N[&search=term] → { totalCount, mangas[] }
-    // Page size is fixed at 24 items
+    // ── fetchCatalog ─────────────────────────────────────────────────────────
+    // GET /api/catalog?page=N[&search=term]
+    // Respuesta: { totalCount, mangas: [{id, title, slug, description, coverImage,
+    //   status, type, tags:[{tag:{name,slug}}]}] }
     async fetchCatalog(search, page) {
       let url = `${BASE_URL}/api/catalog?page=${page}`;
       if (search) url += `&search=${encodeURIComponent(search)}`;
