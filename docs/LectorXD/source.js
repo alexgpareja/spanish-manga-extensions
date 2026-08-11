@@ -877,7 +877,7 @@ var _Sources = (() => {
       const seen = /* @__PURE__ */ new Set();
       const pages = [];
       $('img.page-image, img[class*="page-image"]').each((_, el) => {
-        const src = $(el).attr("src") ?? "";
+        const src = $(el).attr("data-src") || $(el).attr("src") || "";
         if (src.includes("cdnlxd") && !seen.has(src)) {
           seen.add(src);
           pages.push(src);

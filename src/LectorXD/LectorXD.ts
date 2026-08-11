@@ -21,24 +21,24 @@ import {
 } from '@paperback/types'
 
 const BASE_URL = 'https://lectorxd.com'
-const CDN_URL  = 'https://s1.cdnlxd.xyz'
+const CDN_URL = 'https://s1.cdnlxd.xyz'
 
 export const LectorXDInfo: SourceInfo = {
-    version:        '1.0.2',
-    name:           'LectorXD',
-    icon:           'icon.png',
-    author:         'alexgpareja',
-    description:    'LectorXD — Manga, Manhwa y Manhua en Español',
-    contentRating:  ContentRating.MATURE,
+    version: '1.0.2',
+    name: 'LectorXD',
+    icon: 'icon.png',
+    author: 'alexgpareja',
+    description: 'LectorXD — Manga, Manhwa y Manhua en Español',
+    contentRating: ContentRating.MATURE,
     websiteBaseURL: BASE_URL,
-    language:       'es',
+    language: 'es',
     sourceTags: [{ text: 'Español', type: BadgeColor.GREY }],
     intents: SourceIntents.MANGA_CHAPTERS
-           | SourceIntents.HOMEPAGE_SECTIONS
-           | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
+        | SourceIntents.HOMEPAGE_SECTIONS
+        | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
 }
 
-function getSlug(mangaId: string): string     { return mangaId.split('/').slice(1).join('/') }
+function getSlug(mangaId: string): string { return mangaId.split('/').slice(1).join('/') }
 function typeToPath(apiType: string): string {
     if (apiType === 'manhwa') return 'manhwa'
     if (apiType === 'manhua') return 'manhua'
@@ -79,9 +79,8 @@ export class LectorXD implements
     MangaProviding,
     ChapterProviding,
     HomePageSectionsProviding,
-    CloudflareBypassRequestProviding
-{
-    constructor(private cheerio: CheerioAPI) {}
+    CloudflareBypassRequestProviding {
+    constructor(private cheerio: CheerioAPI) { }
 
     RETRIES = 3
     requestManager = App.createRequestManager({ requestsPerSecond: 3, requestTimeout: 20000 })
@@ -95,13 +94,13 @@ export class LectorXD implements
     // Usa /api/catalog?search=TITULO para obtener desc, géneros y estado.
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
-        const slug      = getSlug(mangaId)
+        const slug = getSlug(mangaId)
         const titleHint = slug.replace(/-/g, ' ')
 
         const apiResp = await this.requestManager.schedule(
             App.createRequest({
-                url:     `${BASE_URL}/api/catalog?search=${encodeURIComponent(titleHint)}&page=1`,
-                method:  'GET',
+                url: `${BASE_URL}/api/catalog?search=${encodeURIComponent(titleHint)}&page=1`,
+                method: 'GET',
                 headers: { Referer: BASE_URL, Accept: 'application/json' },
             }), this.RETRIES
         )
@@ -110,18 +109,18 @@ export class LectorXD implements
         try {
             const data = JSON.parse(apiResp.data)
             manga = (data.mangas ?? []).find((m: any) => m.slug === slug)
-                 ?? (data.mangas ?? [])[0]
+                ?? (data.mangas ?? [])[0]
         } catch { /* fallback */ }
 
-        const title  = manga?.title || slug.replace(/-/g, ' ')
-        const desc   = manga?.description || ''
-        const image  = manga?.coverImage  || coverUrl(slug)
+        const title = manga?.title || slug.replace(/-/g, ' ')
+        const desc = manga?.description || ''
+        const image = manga?.coverImage || coverUrl(slug)
         const status = parseStatus(manga?.status ?? '')
 
         const tagItems: ReturnType<typeof App.createTag>[] = []
         const seen = new Set<string>()
         for (const t of (manga?.tags ?? [])) {
-            const id    = t.tag?.slug ?? String(t.tagId)
+            const id = t.tag?.slug ?? String(t.tagId)
             const label = t.tag?.name ?? id
             if (!seen.has(id)) { seen.add(id); tagItems.push(App.createTag({ id, label })) }
         }
@@ -176,7 +175,7 @@ export class LectorXD implements
 
         // Primero: img.page-image con src directo
         $('img.page-image, img[class*="page-image"]').each((_: number, el: Element) => {
-            const src = $(el).attr('src') ?? ''
+            const src = $(el).attr('data-src') || $(el).attr('src') || ''
             if (src.includes('cdnlxd') && !seen.has(src)) { seen.add(src); pages.push(src) }
         })
 
@@ -239,12 +238,12 @@ export class LectorXD implements
 
     async getSearchTags(): Promise<TagSection[]> {
         const genres: [string, string][] = [
-            ['accion','Acción'],['aventura','Aventura'],['comedia','Comedia'],
-            ['drama','Drama'],['ecchi','Ecchi'],['fantasia','Fantasía'],
-            ['harem','Harem'],['horror','Horror'],['isekai','Isekai'],
-            ['romance','Romance'],['seinen','Seinen'],['shounen','Shounen'],
-            ['shoujo','Shoujo'],['sobrenatural','Sobrenatural'],
-            ['sistema-de-niveles','Sistema de Niveles'],['reencarnacion','Reencarnación'],
+            ['accion', 'Acción'], ['aventura', 'Aventura'], ['comedia', 'Comedia'],
+            ['drama', 'Drama'], ['ecchi', 'Ecchi'], ['fantasia', 'Fantasía'],
+            ['harem', 'Harem'], ['horror', 'Horror'], ['isekai', 'Isekai'],
+            ['romance', 'Romance'], ['seinen', 'Seinen'], ['shounen', 'Shounen'],
+            ['shoujo', 'Shoujo'], ['sobrenatural', 'Sobrenatural'],
+            ['sistema-de-niveles', 'Sistema de Niveles'], ['reencarnacion', 'Reencarnación'],
         ]
         return [App.createTagSection({
             id: 'genres', label: 'Géneros',
@@ -265,8 +264,8 @@ export class LectorXD implements
         try { data = JSON.parse(resp.data) } catch { return [] }
         return (data.mangas ?? []).map((m: any) => App.createPartialSourceManga({
             mangaId: `${typeToPath(m.type)}/${m.slug}`,
-            image:   m.coverImage || coverUrl(m.slug),
-            title:   m.title,
+            image: m.coverImage || coverUrl(m.slug),
+            title: m.title,
         }))
     }
 }
