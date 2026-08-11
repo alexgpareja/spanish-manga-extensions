@@ -885,7 +885,7 @@ var _Sources = (() => {
       });
       if (pages.length === 0) {
         $("img").each((_, el) => {
-          const src = $(el).attr("src") ?? $(el).attr("data-src") ?? "";
+          const src = $(el).attr("data-src") ?? $(el).attr("src") ?? "";
           if (src.includes("cdnlxd") && !seen.has(src)) {
             seen.add(src);
             pages.push(src);
