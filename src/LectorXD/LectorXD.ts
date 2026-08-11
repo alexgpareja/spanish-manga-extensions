@@ -182,7 +182,7 @@ export class LectorXD implements
         // Fallback: cualquier img del CDN (src o data-src)
         if (pages.length === 0) {
             $('img').each((_: number, el: Element) => {
-                const src = $(el).attr('src') ?? $(el).attr('data-src') ?? ''
+                const src = $(el).attr('data-src') ?? $(el).attr('src') ?? ''
                 if (src.includes('cdnlxd') && !seen.has(src)) { seen.add(src); pages.push(src) }
             })
         }
