@@ -943,20 +943,31 @@ var _Sources = (() => {
       return App.createChapterDetails({ id: chapterId, mangaId, pages });
     }
     // ── getHomePageSections ──────────────────────────────────────────────────
+    // "recent" y "popular" salen de /catalogo (HTML con CatalogGrid island):
+    // /api/catalog ignora el parámetro orderBy, siempre devuelve orden por
+    // fecha — /catalogo sí lo respeta server-side.
     async getHomePageSections(sectionCallback) {
-      const s = App.createHomeSection({
-        id: "catalog",
-        title: "\u{1F4DA} Cat\xE1logo",
-        type: import_types.HomeSectionType.singleRowNormal,
-        containsMoreItems: true
-      });
-      sectionCallback(s);
-      s.items = await this.fetchCatalog("", 1);
-      sectionCallback(s);
+      const sections = [
+        App.createHomeSection({ id: "catalog", title: "\u{1F4DA} Cat\xE1logo", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true }),
+        App.createHomeSection({ id: "recent", title: "\u{1F552} Recientes", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true }),
+        App.createHomeSection({ id: "popular", title: "\u{1F525} Populares", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true })
+      ];
+      sections.forEach(sectionCallback);
+      const [catalog, recent, popular] = await Promise.all([
+        this.fetchCatalog("", 1),
+        this.fetchCatalogPage(1, ""),
+        this.fetchCatalogPage(1, "&orderBy=views")
+      ]);
+      sections[0].items = catalog;
+      sectionCallback(sections[0]);
+      sections[1].items = recent;
+      sectionCallback(sections[1]);
+      sections[2].items = popular;
+      sectionCallback(sections[2]);
     }
-    async getViewMoreItems(_, metadata) {
+    async getViewMoreItems(sectionId, metadata) {
       const page = metadata?.page ?? 1;
-      const tiles = await this.fetchCatalog("", page);
+      const tiles = sectionId === "recent" ? await this.fetchCatalogPage(page, "") : sectionId === "popular" ? await this.fetchCatalogPage(page, "&orderBy=views") : await this.fetchCatalog("", page);
       return App.createPagedResults({
         results: tiles,
         metadata: tiles.length >= 24 ? { page: page + 1 } : void 0
@@ -1016,6 +1027,26 @@ var _Sources = (() => {
         image: m.coverImage || coverUrl(m.slug),
         title: m.title
       }));
+    }
+    // ── fetchCatalogPage ─────────────────────────────────────────────────────
+    // Lee /catalogo?...&page=N y extrae las props del island CatalogGrid.
+    async fetchCatalogPage(page, extraParams) {
+      const url = `${BASE_URL}/catalogo?adult=all&filters=true${extraParams}&page=${page}`;
+      const resp = await this.requestManager.schedule(
+        App.createRequest({ url, method: "GET", headers: { Referer: BASE_URL } }),
+        this.RETRIES
+      );
+      const props = extractAstroIslandProps(resp.data, 'component-url="/_astro/CatalogGrid.');
+      const entries = props?.initialMangas ? unwrap(props.initialMangas) : null;
+      if (!Array.isArray(entries)) return [];
+      return entries.map((e) => unwrap(e)).map((m) => {
+        const slug = unwrap(m.slug), type = unwrap(m.type);
+        return App.createPartialSourceManga({
+          mangaId: `${typeToPath(type)}/${slug}`,
+          image: unwrap(m.coverImage) || coverUrl(slug),
+          title: unwrap(m.title)
+        });
+      });
     }
   };
   return __toCommonJS(LectorXD_exports);
