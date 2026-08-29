@@ -877,24 +877,36 @@ var _Sources = (() => {
       return App.createChapterDetails({ id: chapterId, mangaId, pages });
     }
     // ── getHomePageSections ────────────────────────────────────────────────
+    // La home NO tiene una sección real de "populares" (no hay ranking por
+    // vistas en ningún sitio del site) — solo "Últimos Capítulos" y "Nuevas
+    // Obras", ambas con contenedor propio para no mezclarlas al parsear.
     async getHomePageSections(sectionCallback) {
-      const latest = App.createHomeSection({ id: "latest", title: "\u{1F552} \xDAltimas actualizaciones", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true });
-      const popular = App.createHomeSection({ id: "library", title: "\u2B50\uFE0F Biblioteca completa", type: import_types.HomeSectionType.singleRowLarge, containsMoreItems: true });
-      sectionCallback(latest);
-      sectionCallback(popular);
+      const recent = App.createHomeSection({ id: "recent", title: "\u{1F552} Recientes", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true });
+      const newest = App.createHomeSection({ id: "newest", title: "\u{1F195} Nuevas Obras", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: false });
+      const catalog = App.createHomeSection({ id: "catalog", title: "\u{1F4DA} Cat\xE1logo", type: import_types.HomeSectionType.singleRowLarge, containsMoreItems: true });
+      [recent, newest, catalog].forEach(sectionCallback);
       const resp = await this.requestManager.schedule(
         App.createRequest({ url: `${BASE_URL}/`, method: "GET" }),
         this.RETRIES
       );
       const $ = this.cheerio.load(resp.data);
-      const tiles = this.parseTiles($);
-      latest.items = tiles.slice(0, 15);
-      popular.items = tiles.slice(15, 30);
-      sectionCallback(latest);
-      sectionCallback(popular);
+      const { tiles: catalogTiles } = await this.fetchBiblioteca(1);
+      recent.items = this.parseTiles($, ".latest-list");
+      newest.items = this.parseTiles($, ".trending-block.recently-items");
+      catalog.items = catalogTiles;
+      sectionCallback(recent);
+      sectionCallback(newest);
+      sectionCallback(catalog);
     }
     async getViewMoreItems(_, metadata) {
       const page = metadata?.page ?? 1;
+      const { tiles, hasNext } = await this.fetchBiblioteca(page);
+      return App.createPagedResults({
+        results: tiles,
+        metadata: hasNext ? { page: page + 1 } : void 0
+      });
+    }
+    async fetchBiblioteca(page) {
       const resp = await this.requestManager.schedule(
         App.createRequest({ url: `${BASE_URL}/biblioteca/page/${page}/`, method: "GET" }),
         this.RETRIES
@@ -904,10 +916,7 @@ var _Sources = (() => {
         const n = parseInt($(el).attr("href")?.match(/\/page\/(\d+)/)?.[1] ?? "0");
         return n > page;
       });
-      return App.createPagedResults({
-        results: this.parseTiles($),
-        metadata: hasNext ? { page: page + 1 } : void 0
-      });
+      return { tiles: this.parseTiles($), hasNext };
     }
     // ── getSearchResults ───────────────────────────────────────────────────
     // URL: /search/?s={query}  — devuelve todos los resultados en una página
@@ -971,10 +980,10 @@ var _Sources = (() => {
     // Items del listado: a[href*="/manhwa/"] con img dentro
     // - Cover: uploads/{slug}-thumbnail.jpg
     // - mangaId: "{slug}_" — sin numId (se obtiene al abrir el detalle)
-    parseTiles($) {
+    parseTiles($, scope = "") {
       const tiles = [];
       const seen = /* @__PURE__ */ new Set();
-      $('a[href*="/manhwa/"]').each((_, el) => {
+      $(`${scope} a[href*="/manhwa/"]`).each((_, el) => {
         const href = $(el).attr("href") ?? "";
         const m = href.match(/\/manhwa\/([^/?#]+)/);
         if (!m) return;

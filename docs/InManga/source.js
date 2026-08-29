@@ -862,16 +862,34 @@ var _Sources = (() => {
       return App.createChapterDetails({ id: chapterId, mangaId, pages });
     }
     // ── getHomePageSections ───────────────────────────────────────────────────
+    // "recent" y "popular" salen de los widgets reales de la home
+    // (GET /chapter/getRecentChapters, GET /manga/getMostViewedMangas — HTML
+    // parcial, no JSON). Ninguno de los dos soporta paginación (siempre
+    // devuelven el mismo puñado fijo de resultados).
     async getHomePageSections(sectionCallback) {
-      const popular = App.createHomeSection({
-        id: "popular",
-        title: "\u{1F4DA} Cat\xE1logo",
-        type: import_types.HomeSectionType.singleRowNormal,
-        containsMoreItems: true
-      });
+      const recent = App.createHomeSection({ id: "recent", title: "\u{1F552} Recientes", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: false });
+      const popular = App.createHomeSection({ id: "popular", title: "\u{1F525} Populares", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: false });
+      const catalog = App.createHomeSection({ id: "catalog", title: "\u{1F4DA} Cat\xE1logo", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true });
+      [recent, popular, catalog].forEach(sectionCallback);
+      const [recentResp, popularResp, catalogTiles] = await Promise.all([
+        this.requestManager.schedule(App.createRequest({
+          url: `${BASE_URL}/chapter/getRecentChapters`,
+          method: "GET",
+          headers: { Referer: BASE_URL, "X-Requested-With": "XMLHttpRequest" }
+        }), this.RETRIES),
+        this.requestManager.schedule(App.createRequest({
+          url: `${BASE_URL}/manga/getMostViewedMangas`,
+          method: "GET",
+          headers: { Referer: BASE_URL }
+        }), this.RETRIES),
+        this.fetchCatalog("", 0, 15)
+      ]);
+      recent.items = this.parseRecentChapterMangas(this.cheerio.load(recentResp.data));
+      popular.items = this.parseTiles(this.cheerio.load(popularResp.data));
+      catalog.items = catalogTiles;
+      sectionCallback(recent);
       sectionCallback(popular);
-      popular.items = await this.fetchCatalog("", 0, 15);
-      sectionCallback(popular);
+      sectionCallback(catalog);
     }
     async getViewMoreItems(_sectionId, metadata) {
       const skip = metadata?.skip ?? 0;
@@ -934,6 +952,30 @@ var _Sources = (() => {
         const image = rawImage.startsWith("http") && !rawImage.includes("loading-gear") ? rawImage : coverUrl(uuid);
         const title = (img.attr("alt") ?? "").replace(/ Manga Online - InManga$/i, "").trim() || slug.replace(/-/g, " ");
         tiles.push(App.createPartialSourceManga({ mangaId, image, title }));
+      });
+      return tiles;
+    }
+    // ── parseRecentChapterMangas ─────────────────────────────────────────────
+    // getRecentChapters da links a CAPÍTULOS: /ver/manga/{slug}/{chapNum}/{chapUuid}
+    // — el UUID del manga está en la imagen (i/m/{mangaUuid}/t/o/...), no en el href.
+    // Deduplica por manga, quedándose con el capítulo más reciente de cada uno.
+    parseRecentChapterMangas($) {
+      const tiles = [];
+      const seen = /* @__PURE__ */ new Set();
+      $('a[href*="/ver/manga/"]').each((_, el) => {
+        const href = $(el).attr("href") ?? "";
+        const m = href.match(/^\/ver\/manga\/([^/]+)\/[\d.,]+\/([a-f0-9-]{36})/i);
+        if (!m) return;
+        const slug = m[1];
+        const img = $(el).find("img").first();
+        const um = (img.attr("src") ?? "").match(/\/i\/m\/([a-f0-9-]{36})\/t\/o\//i);
+        if (!um) return;
+        const uuid = um[1].toLowerCase();
+        const mangaId = `${slug}|${uuid}`;
+        if (seen.has(mangaId)) return;
+        seen.add(mangaId);
+        const title = (img.attr("alt") ?? "").replace(/\s+[\d.,]+\s+Manga Online - InManga$/i, "").trim() || slug.replace(/-/g, " ");
+        tiles.push(App.createPartialSourceManga({ mangaId, image: coverUrl(uuid), title }));
       });
       return tiles;
     }

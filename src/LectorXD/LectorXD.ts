@@ -250,20 +250,20 @@ export class LectorXD implements
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
         const sections = [
-            App.createHomeSection({ id: 'catalog', title: '📚 Catálogo', type: HomeSectionType.singleRowNormal, containsMoreItems: true }),
             App.createHomeSection({ id: 'recent', title: '🕒 Recientes', type: HomeSectionType.singleRowNormal, containsMoreItems: true }),
             App.createHomeSection({ id: 'popular', title: '🔥 Populares', type: HomeSectionType.singleRowNormal, containsMoreItems: true }),
+            App.createHomeSection({ id: 'catalog', title: '📚 Catálogo', type: HomeSectionType.singleRowNormal, containsMoreItems: true }),
         ]
         sections.forEach(sectionCallback)
 
-        const [catalog, recent, popular] = await Promise.all([
-            this.fetchCatalog('', 1),
+        const [recent, popular, catalog] = await Promise.all([
             this.fetchCatalogPage(1, ''),
             this.fetchCatalogPage(1, '&orderBy=views'),
+            this.fetchCatalog('', 1),
         ])
-        sections[0]!.items = catalog; sectionCallback(sections[0]!)
-        sections[1]!.items = recent; sectionCallback(sections[1]!)
-        sections[2]!.items = popular; sectionCallback(sections[2]!)
+        sections[0]!.items = recent; sectionCallback(sections[0]!)
+        sections[1]!.items = popular; sectionCallback(sections[1]!)
+        sections[2]!.items = catalog; sectionCallback(sections[2]!)
     }
 
     async getViewMoreItems(sectionId: string, metadata: any): Promise<PagedResults> {

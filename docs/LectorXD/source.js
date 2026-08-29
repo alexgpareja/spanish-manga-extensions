@@ -948,21 +948,21 @@ var _Sources = (() => {
     // fecha — /catalogo sí lo respeta server-side.
     async getHomePageSections(sectionCallback) {
       const sections = [
-        App.createHomeSection({ id: "catalog", title: "\u{1F4DA} Cat\xE1logo", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true }),
         App.createHomeSection({ id: "recent", title: "\u{1F552} Recientes", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true }),
-        App.createHomeSection({ id: "popular", title: "\u{1F525} Populares", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true })
+        App.createHomeSection({ id: "popular", title: "\u{1F525} Populares", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true }),
+        App.createHomeSection({ id: "catalog", title: "\u{1F4DA} Cat\xE1logo", type: import_types.HomeSectionType.singleRowNormal, containsMoreItems: true })
       ];
       sections.forEach(sectionCallback);
-      const [catalog, recent, popular] = await Promise.all([
-        this.fetchCatalog("", 1),
+      const [recent, popular, catalog] = await Promise.all([
         this.fetchCatalogPage(1, ""),
-        this.fetchCatalogPage(1, "&orderBy=views")
+        this.fetchCatalogPage(1, "&orderBy=views"),
+        this.fetchCatalog("", 1)
       ]);
-      sections[0].items = catalog;
+      sections[0].items = recent;
       sectionCallback(sections[0]);
-      sections[1].items = recent;
+      sections[1].items = popular;
       sectionCallback(sections[1]);
-      sections[2].items = popular;
+      sections[2].items = catalog;
       sectionCallback(sections[2]);
     }
     async getViewMoreItems(sectionId, metadata) {

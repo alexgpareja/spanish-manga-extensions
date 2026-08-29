@@ -228,28 +228,38 @@ export class TmoManhwa implements
     }
 
     // ── getHomePageSections ────────────────────────────────────────────────
+    // La home NO tiene una sección real de "populares" (no hay ranking por
+    // vistas en ningún sitio del site) — solo "Últimos Capítulos" y "Nuevas
+    // Obras", ambas con contenedor propio para no mezclarlas al parsear.
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        const latest  = App.createHomeSection({ id: 'latest',  title: '🕒 Últimas actualizaciones', type: HomeSectionType.singleRowNormal, containsMoreItems: true })
-        const popular = App.createHomeSection({ id: 'library', title: '⭐️ Biblioteca completa',      type: HomeSectionType.singleRowLarge,  containsMoreItems: true })
-
-        sectionCallback(latest)
-        sectionCallback(popular)
+        const recent  = App.createHomeSection({ id: 'recent',  title: '🕒 Recientes',    type: HomeSectionType.singleRowNormal, containsMoreItems: true })
+        const newest  = App.createHomeSection({ id: 'newest',  title: '🆕 Nuevas Obras',  type: HomeSectionType.singleRowNormal, containsMoreItems: false })
+        const catalog = App.createHomeSection({ id: 'catalog', title: '📚 Catálogo',      type: HomeSectionType.singleRowLarge,  containsMoreItems: true })
+        ;[recent, newest, catalog].forEach(sectionCallback)
 
         const resp = await this.requestManager.schedule(
             App.createRequest({ url: `${BASE_URL}/`, method: 'GET' }), this.RETRIES
         )
         const $ = this.cheerio.load(resp.data)
-        const tiles = this.parseTiles($)
+        const { tiles: catalogTiles } = await this.fetchBiblioteca(1)
 
-        latest.items  = tiles.slice(0, 15)
-        popular.items = tiles.slice(15, 30)
-        sectionCallback(latest)
-        sectionCallback(popular)
+        recent.items  = this.parseTiles($, '.latest-list')
+        newest.items  = this.parseTiles($, '.trending-block.recently-items')
+        catalog.items = catalogTiles
+        sectionCallback(recent); sectionCallback(newest); sectionCallback(catalog)
     }
 
     async getViewMoreItems(_: string, metadata: any): Promise<PagedResults> {
         const page = metadata?.page ?? 1
+        const { tiles, hasNext } = await this.fetchBiblioteca(page)
+        return App.createPagedResults({
+            results:  tiles,
+            metadata: hasNext ? { page: page + 1 } : undefined,
+        })
+    }
+
+    private async fetchBiblioteca(page: number): Promise<{ tiles: PartialSourceManga[], hasNext: boolean }> {
         const resp = await this.requestManager.schedule(
             App.createRequest({ url: `${BASE_URL}/biblioteca/page/${page}/`, method: 'GET' }), this.RETRIES
         )
@@ -262,10 +272,7 @@ export class TmoManhwa implements
                 return n > page
             })
 
-        return App.createPagedResults({
-            results:  this.parseTiles($),
-            metadata: hasNext ? { page: page + 1 } : undefined,
-        })
+        return { tiles: this.parseTiles($), hasNext }
     }
 
     // ── getSearchResults ───────────────────────────────────────────────────
@@ -330,11 +337,11 @@ export class TmoManhwa implements
     // - Cover: uploads/{slug}-thumbnail.jpg
     // - mangaId: "{slug}_" — sin numId (se obtiene al abrir el detalle)
 
-    parseTiles($: CheerioAPI): PartialSourceManga[] {
+    parseTiles($: CheerioAPI, scope = ''): PartialSourceManga[] {
         const tiles: PartialSourceManga[] = []
         const seen  = new Set<string>()
 
-        $('a[href*="/manhwa/"]').each((_: number, el: Element) => {
+        $(`${scope} a[href*="/manhwa/"]`).each((_: number, el: Element) => {
             const href = $(el).attr('href') ?? ''
             const m    = href.match(/\/manhwa\/([^/?#]+)/)
             if (!m) return
