@@ -74,6 +74,27 @@ function extractJsonArray(html: string, marker: string): any[] | null {
     catch { return null }
 }
 
+/**
+ * Extrae las props (JSON) del <astro-island> cuyo component-url empieza por
+ * `componentPrefix`. Trae datos que `chaptersList` no tiene, como `publishAt`.
+ */
+function extractAstroIslandProps(html: string, componentPrefix: string): any | null {
+    const compIdx = html.indexOf(componentPrefix)
+    if (compIdx === -1) return null
+    const tagStart = html.lastIndexOf('<astro-island', compIdx)
+    const tagEnd = html.indexOf('>', tagStart)
+    if (tagStart === -1 || tagEnd === -1) return null
+    const propsMatch = html.slice(tagStart, tagEnd).match(/props="([^"]*)"/)
+    if (!propsMatch) return null
+    const decoded = propsMatch[1]
+        .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+    try { return JSON.parse(decoded) } catch { return null }
+}
+
+// Astro serializa las props como [tag, valor]; solo nos interesa el valor.
+function unwrap(x: any): any { return Array.isArray(x) && x.length === 2 && typeof x[0] === 'number' ? x[1] : x }
+
 export class LectorXD implements
     SearchResultsProviding,
     MangaProviding,
@@ -137,8 +158,8 @@ export class LectorXD implements
     }
 
     // ── getChapters ──────────────────────────────────────────────────────────
-    // Extrae `chaptersList = [...]` del HTML usando contador de brackets.
-    // La regex falla con listas largas (+400 caps) — este método es robusto.
+    // Primero intenta las props del componente ChapterList (trae `publishAt`).
+    // Si el sitio cambia, cae a `chaptersList = [...]` (sin fecha real).
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
         const resp = await this.requestManager.schedule(
@@ -148,10 +169,26 @@ export class LectorXD implements
             }), this.RETRIES
         )
 
+        const seen = new Set<string>()
+
+        const props = extractAstroIslandProps(resp.data, 'component-url="/_astro/ChapterList.')
+        const entries = props?.chapters ? unwrap(props.chapters) : null
+        if (Array.isArray(entries)) {
+            return entries
+                .map((e: any) => unwrap(e))
+                .filter((c: any) => c?.chapter != null)
+                .map((c: any) => ({ num: String(unwrap(c.chapter)), publishAt: c.publishAt ? unwrap(c.publishAt) : null }))
+                .filter((c) => { if (seen.has(c.num)) return false; seen.add(c.num); return true })
+                .map((c) => App.createChapter({
+                    id: c.num, chapNum: parseFloat(c.num),
+                    name: `Capítulo ${c.num}`, langCode: 'es',
+                    time: c.publishAt ? new Date(c.publishAt) : undefined,
+                }))
+                .sort((a: Chapter, b: Chapter) => b.chapNum - a.chapNum)
+        }
+
         const list = extractJsonArray(resp.data, 'chaptersList = [')
         if (!list) return []
-
-        const seen = new Set<string>()
         return list
             .filter((c: any) => { if (seen.has(c.chapter)) return false; seen.add(c.chapter); return true })
             .map((c: any) => App.createChapter({

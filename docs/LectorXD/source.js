@@ -785,6 +785,24 @@ var _Sources = (() => {
       return null;
     }
   }
+  function extractAstroIslandProps(html, componentPrefix) {
+    const compIdx = html.indexOf(componentPrefix);
+    if (compIdx === -1) return null;
+    const tagStart = html.lastIndexOf("<astro-island", compIdx);
+    const tagEnd = html.indexOf(">", tagStart);
+    if (tagStart === -1 || tagEnd === -1) return null;
+    const propsMatch = html.slice(tagStart, tagEnd).match(/props="([^"]*)"/);
+    if (!propsMatch) return null;
+    const decoded = propsMatch[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    try {
+      return JSON.parse(decoded);
+    } catch {
+      return null;
+    }
+  }
+  function unwrap(x) {
+    return Array.isArray(x) && x.length === 2 && typeof x[0] === "number" ? x[1] : x;
+  }
   var LectorXD = class {
     constructor(cheerio) {
       this.cheerio = cheerio;
@@ -837,8 +855,8 @@ var _Sources = (() => {
       });
     }
     // ── getChapters ──────────────────────────────────────────────────────────
-    // Extrae `chaptersList = [...]` del HTML usando contador de brackets.
-    // La regex falla con listas largas (+400 caps) — este método es robusto.
+    // Primero intenta las props del componente ChapterList (trae `publishAt`).
+    // Si el sitio cambia, cae a `chaptersList = [...]` (sin fecha real).
     async getChapters(mangaId) {
       const resp = await this.requestManager.schedule(
         App.createRequest({
@@ -848,9 +866,24 @@ var _Sources = (() => {
         }),
         this.RETRIES
       );
+      const seen = /* @__PURE__ */ new Set();
+      const props = extractAstroIslandProps(resp.data, 'component-url="/_astro/ChapterList.');
+      const entries = props?.chapters ? unwrap(props.chapters) : null;
+      if (Array.isArray(entries)) {
+        return entries.map((e) => unwrap(e)).filter((c) => c?.chapter != null).map((c) => ({ num: String(unwrap(c.chapter)), publishAt: c.publishAt ? unwrap(c.publishAt) : null })).filter((c) => {
+          if (seen.has(c.num)) return false;
+          seen.add(c.num);
+          return true;
+        }).map((c) => App.createChapter({
+          id: c.num,
+          chapNum: parseFloat(c.num),
+          name: `Cap\xEDtulo ${c.num}`,
+          langCode: "es",
+          time: c.publishAt ? new Date(c.publishAt) : void 0
+        })).sort((a, b) => b.chapNum - a.chapNum);
+      }
       const list = extractJsonArray(resp.data, "chaptersList = [");
       if (!list) return [];
-      const seen = /* @__PURE__ */ new Set();
       return list.filter((c) => {
         if (seen.has(c.chapter)) return false;
         seen.add(c.chapter);
