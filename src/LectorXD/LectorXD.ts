@@ -86,7 +86,9 @@ export class LectorXD implements
     requestManager = App.createRequestManager({ requestsPerSecond: 3, requestTimeout: 20000 })
 
     async getCloudflareBypassRequestAsync(): Promise<Request> {
-        return App.createRequest({ url: BASE_URL, method: 'GET' })
+        // Las páginas de detalle (/manhwa/*, /manga/*...) tienen un challenge de
+        // Cloudflare más estricto que la home — bypassear solo BASE_URL no lo resuelve.
+        return App.createRequest({ url: `${BASE_URL}/manhwa/x`, method: 'GET' })
     }
     getMangaShareUrl(mangaId: string): string { return `${BASE_URL}/${mangaId}` }
 

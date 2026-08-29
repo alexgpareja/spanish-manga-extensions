@@ -792,7 +792,7 @@ var _Sources = (() => {
       this.requestManager = App.createRequestManager({ requestsPerSecond: 3, requestTimeout: 2e4 });
     }
     async getCloudflareBypassRequestAsync() {
-      return App.createRequest({ url: BASE_URL, method: "GET" });
+      return App.createRequest({ url: `${BASE_URL}/manhwa/x`, method: "GET" });
     }
     getMangaShareUrl(mangaId) {
       return `${BASE_URL}/${mangaId}`;
