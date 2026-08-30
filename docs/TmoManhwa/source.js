@@ -967,8 +967,7 @@ var _Sources = (() => {
         ["tragedia", "Tragedia"],
         ["vida-escolar", "Vida Escolar"],
         ["boys-love", "Boys Love"],
-        ["girls-love", "Girls Love"],
-        ["gore", "Gore"]
+        ["girls-love", "Girls Love"]
       ];
       return [App.createTagSection({
         id: "genres",

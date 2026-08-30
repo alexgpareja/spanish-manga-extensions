@@ -323,7 +323,7 @@ export class TmoManhwa implements
             ['seinen','Seinen'], ['shoujo','Shoujo'], ['shounen','Shounen'],
             ['sobrenatural','Sobrenatural'], ['tragedia','Tragedia'],
             ['vida-escolar','Vida Escolar'], ['boys-love','Boys Love'],
-            ['girls-love','Girls Love'], ['gore','Gore'],
+            ['girls-love','Girls Love'],
         ]
         return [App.createTagSection({
             id:    'genres',
